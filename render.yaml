@@ -3,7 +3,7 @@ services:
     name: thuocsi-vs-longchau
     runtime: node
     plan: free
-    buildCommand: npm install && cd client && npm install --include=dev && npm run build
+    buildCommand: npm install && cd client && npm install --include=dev && npm run build && cd .. && npx puppeteer browsers install chrome
     startCommand: node src/server.js
     envVars:
       - key: NODE_ENV
@@ -12,6 +12,10 @@ services:
         fromDatabase:
           name: thuocsi-db
           property: connectionString
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/.cache/puppeteer
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /opt/render/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome
     healthCheckPath: /api/search?q=test
 
 databases:
