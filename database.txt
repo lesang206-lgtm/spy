@@ -1,0 +1,88 @@
+   Tạo database
+CREATE DATABASE thuocsi_vs_longchau;
+
+\c thuocsi_vs_longchau;
+
+
+CREATE TABLE products (
+  id SERIAL PRIMARY KEY,
+  source VARCHAR(50) NOT NULL CHECK (source IN ('nhathuoclongchau.com.vn', 'thuocsi.vn')),
+  name VARCHAR(500) NOT NULL,
+  price NUMERIC(12, 2) DEFAULT 0,
+  sale_price NUMERIC(12, 2) DEFAULT 0,
+  image_url TEXT,
+  product_url TEXT,
+  brand VARCHAR(200),
+  manufacturer VARCHAR(300),
+  unit VARCHAR(100),
+  active_ingredient VARCHAR(300),
+  dosage_form VARCHAR(100),
+  registration_number VARCHAR(100),
+  sku VARCHAR(100),
+  raw_data JSONB,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_source ON products(source);
+CREATE INDEX idx_products_name ON products USING gin(to_tsvector('simple', unaccent(name)));
+CREATE INDEX idx_products_sku ON products(sku);
+CREATE INDEX idx_products_created_at ON products(created_at);
+
+
+CREATE TABLE product_matches (
+  id SERIAL PRIMARY KEY,
+  product_longchau_id INT REFERENCES products(id) ON DELETE CASCADE,
+  product_thuocsi_id INT REFERENCES products(id) ON DELETE CASCADE,
+  match_score NUMERIC(5, 4) DEFAULT 0,
+  price_diff NUMERIC(12, 2),
+  cheaper_source VARCHAR(50),
+  search_keyword VARCHAR(500),
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(product_longchau_id, product_thuocsi_id)
+);
+
+CREATE INDEX idx_matches_keyword ON product_matches(search_keyword);
+CREATE INDEX idx_matches_cheaper ON product_matches(cheaper_source);
+
+
+CREATE TABLE search_history (
+  id SERIAL PRIMARY KEY,
+  keyword VARCHAR(500) NOT NULL,
+  longchau_count INT DEFAULT 0,
+  thuocsi_count INT DEFAULT 0,
+  matched_count INT DEFAULT 0,
+  response_time_ms INT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_history_keyword ON search_history(keyword);
+CREATE INDEX idx_history_created_at ON search_history(created_at);
+
+
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_products_updated_at
+  BEFORE UPDATE ON products
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+
+CREATE VIEW v_price_summary AS
+SELECT
+  pm.search_keyword,
+  COUNT(*) AS total_matches,
+  COUNT(*) FILTER (WHERE pm.cheaper_source = 'nhathuoclongchau.com.vn') AS longchau_cheaper,
+  COUNT(*) FILTER (WHERE pm.cheaper_source = 'thuocsi.vn') AS thuocsi_cheaper,
+  AVG(pm.match_score) AS avg_match_score
+FROM product_matches pm
+GROUP BY pm.search_keyword
+ORDER BY pm.search_keyword;

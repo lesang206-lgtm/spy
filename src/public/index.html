@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>So Sánh Giá Thuốc</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>So Sánh Giá Thuốc</h1>
+      <p class="subtitle">So sánh giá giữa <strong>thuocsi.vn</strong> và <strong>nhathuoclongchau.com.vn</strong></p>
+    </header>
+
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Nhập tên thuốc cần so sánh..." autofocus>
+      <button id="searchBtn">So Sánh</button>
+    </div>
+
+    <div id="warnings" class="warnings hidden"></div>
+
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Đang tìm kiếm trên cả hai trang...</p>
+    </div>
+
+    <div id="results" class="hidden">
+      <div id="summary" class="summary"></div>
+      <div id="comparisonList" class="comparison-list"></div>
+    </div>
+
+    <div id="noMatch" class="no-match hidden">
+      <div class="no-match-icon">🔍</div>
+      <p>Không tìm thấy kết quả phù hợp.</p>
+      <p class="hint">Thử tìm theo: tên thuốc (paracetamol, amoxicillin), tên thương mại (Panadol, Augmentin), hoặc hoạt chất.</p>
+    </div>
+
+    <div id="loginNote" class="login-note hidden">
+      <p><strong>⚠️ Chưa có thông tin từ thuocsi.vn</strong></p>
+      <p>thuocsi.vn yêu cầu đăng nhập để xem giá thuốc.</p>
+      <p>Tạo file <code>.env</code> với nội dung:</p>
+      <pre>THUOCSI_EMAIL=email_của_bạn<br>THUOCSI_PASSWORD=mật_khẩu_của_bạn</pre>
+      <p>Rồi khởi động lại server.</p>
+    </div>
+
+    <div id="error" class="error hidden"></div>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const summary = document.getElementById('summary');
+    const comparisonList = document.getElementById('comparisonList');
+    const errorDiv = document.getElementById('error');
+    const noMatch = document.getElementById('noMatch');
+    const warnings = document.getElementById('warnings');
+    const loginNote = document.getElementById('loginNote');
+
+    searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    searchBtn.addEventListener('click', doSearch);
+
+    async function doSearch() {
+      const q = searchInput.value.trim();
+      if (!q) return;
+
+      hideAll();
+      loading.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+        const data = await res.json();
+        loading.classList.add('hidden');
+
+        if (data.error) { showError(data.error); return; }
+
+        renderWarnings(data);
+        renderResults(data);
+      } catch (err) {
+        loading.classList.add('hidden');
+        showError('Lỗi kết nối: ' + err.message);
+      }
+    }
+
+    function renderResults(data) {
+      const { longChauOk, thuocsiOk, thuocsiLoginRequired } = data.status;
+
+      if (!longChauOk && !thuocsiOk) {
+        if (thuocsiLoginRequired) loginNote.classList.remove('hidden');
+        noMatch.classList.remove('hidden');
+        return;
+      }
+
+      if (data.matches.length === 0) {
+        const lc = data.products.nhathuoclongchau.slice(0, 1);
+        const ts = data.products.thuocsi.slice(0, 1);
+        let msg = '<p>Không tìm thấy sản phẩm trùng khớp giữa 2 trang.</p>';
+
+        if (lc.length > 0) {
+          const p = lc[0];
+          const price = formatPrice(p.salePrice || p.price);
+          const pUrl = p.product_url || p.url || '';
+          const pImg = p.image_url || p.image || '';
+          msg += `<div class="unmatched-section"><h3>🏥 Long Châu</h3><div class="unmatched-list">`;
+          msg += `<div class="unmatched-item">
+            ${pImg ? `<img src="${pImg}" class="unmatched-img" alt="">` : ''}
+            <div class="unmatched-info">
+              <div class="unmatched-name">${escapeHtml(p.name)}</div>
+              <div class="unmatched-price">${price}</div>
+              ${pUrl ? `<a href="${escapeHtml(pUrl)}" target="_blank" class="btn btn-small" rel="noopener noreferrer">🔗 Xem trên Long Châu</a>` : ''}
+            </div>
+          </div>`;
+          msg += '</div></div>';
+        }
+
+        if (ts.length > 0) {
+          const p = ts[0];
+          const price = formatPrice(p.salePrice || p.price);
+          const pUrl = p.product_url || p.url || '';
+          const pImg = p.image_url || p.image || '';
+          msg += `<div class="unmatched-section"><h3>💊 thuocsi.vn</h3><div class="unmatched-list">`;
+          msg += `<div class="unmatched-item">
+            ${pImg ? `<img src="${pImg}" class="unmatched-img" alt="">` : ''}
+            <div class="unmatched-info">
+              <div class="unmatched-name">${escapeHtml(p.name)}</div>
+              <div class="unmatched-price">${price}</div>
+              ${pUrl ? `<a href="${escapeHtml(pUrl)}" target="_blank" class="btn btn-small" rel="noopener noreferrer">🔗 Xem trên thuocsi</a>` : ''}
+            </div>
+          </div>`;
+          msg += '</div></div>';
+        }
+
+        if (lc.length === 0 && ts.length === 0) {
+          msg += '<p class="hint">Không tìm thấy sản phẩm nào.</p>';
+        } else {
+          msg += '<p class="hint">Thử tìm với tên thuốc cụ thể hơn.</p>';
+        }
+
+        document.querySelector('#noMatch .hint')?.remove();
+        noMatch.innerHTML = msg;
+        noMatch.classList.remove('hidden');
+        if (thuocsiLoginRequired && ts.length === 0) loginNote.classList.remove('hidden');
+        return;
+      }
+
+      if (thuocsiLoginRequired) loginNote.classList.remove('hidden');
+
+      const matches = data.matches.slice(0, 1);
+      const cheaperThuocsi = matches.filter(r => r.cheaper === 'thuocsi.vn').length;
+      const cheaperLongChau = matches.filter(r => r.cheaper === 'nhathuoclongchau.com.vn').length;
+
+      summary.innerHTML = `
+        <div class="summary-stats">
+          <span>Tìm thấy <strong>${matches.length}</strong> sản phẩm trùng khớp</span>
+          <span class="stat thuocsi-win">💊 thuocsi.vn rẻ hơn: <strong>${cheaperThuocsi}</strong></span>
+          <span class="stat longchau-win">🏥 Long Châu rẻ hơn: <strong>${cheaperLongChau}</strong></span>
+        </div>
+      `;
+
+      comparisonList.innerHTML = matches.map(item => {
+        if (!item.productA || !item.productB) return '';
+        const lcPrice = formatPrice(item.productA.salePrice || item.productA.price);
+        const tsPrice = formatPrice(item.productB.salePrice || item.productB.price);
+        const lcUrl = item.productA.product_url || item.productA.url || '';
+        const tsUrl = item.productB.product_url || item.productB.url || '';
+
+        let badge = '';
+        if (item.cheaper === 'thuocsi.vn') badge = '<span class="badge badge-thuocsi">💊 thuocsi.vn rẻ hơn</span>';
+        else if (item.cheaper === 'nhathuoclongchau.com.vn') badge = '<span class="badge badge-longchau">🏥 Long Châu rẻ hơn</span>';
+        else badge = '<span class="badge badge-equal">Giá ngang nhau</span>';
+
+        const diff = item.priceDiff !== null
+          ? Math.abs(item.priceDiff).toLocaleString('vi-VN') + '₫'
+          : 'N/A';
+
+        const cardClass = item.cheaper === 'thuocsi.vn' ? 'highlight-thuocsi'
+          : item.cheaper === 'nhathuoclongchau.com.vn' ? 'highlight-longchau' : '';
+
+        return `
+          <div class="compare-card ${cardClass}">
+            <div class="card-header">
+              <h3>${escapeHtml(item.productA.name)}</h3>
+              ${badge}
+            </div>
+            <div class="card-body">
+              <div class="price-col ${item.cheaper === 'nhathuoclongchau.com.vn' ? 'winner' : ''}">
+                <div class="store-name">🏥 Long Châu</div>
+                <div class="price">${lcPrice}</div>
+                ${item.productA.image_url || item.productA.image ? `<img src="${item.productA.image_url || item.productA.image}" class="product-img" alt="">` : ''}
+                ${lcUrl ? `<a href="${escapeHtml(lcUrl)}" target="_blank" class="btn btn-view" rel="noopener noreferrer">🔗 Xem trên Long Châu</a>` : ''}
+              </div>
+              <div class="vs">VS</div>
+              <div class="price-col ${item.cheaper === 'thuocsi.vn' ? 'winner' : ''}">
+                <div class="store-name">💊 thuocsi.vn</div>
+                <div class="price">${tsPrice}</div>
+                ${item.productB.image_url || item.productB.image ? `<img src="${item.productB.image_url || item.productB.image}" class="product-img" alt="">` : ''}
+                ${tsUrl ? `<a href="${escapeHtml(tsUrl)}" target="_blank" class="btn btn-view" rel="noopener noreferrer">🔗 Xem trên thuocsi</a>` : ''}
+              </div>
+              <div class="diff-col">
+                <div class="diff-label">Chênh lệch</div>
+                <div class="diff-value ${item.cheaper === 'thuocsi.vn' ? 'diff-down' : item.cheaper === 'nhathuoclongchau.com.vn' ? 'diff-up' : ''}">${diff}</div>
+              </div>
+            </div>
+            <div class="card-footer">
+              <span class="match-score">Độ khớp: ${(item.matchScore * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      results.classList.remove('hidden');
+    }
+
+    function renderWarnings(data) {
+      if (data.warnings && data.warnings.length > 0) {
+        warnings.innerHTML = data.warnings.map(w => `<div class="warning-item">⚠️ ${escapeHtml(w)}</div>`).join('');
+        warnings.classList.remove('hidden');
+      }
+    }
+
+    function formatPrice(price) {
+      if (!price || price <= 0) return '<span class="na">N/A</span>';
+      const num = Math.round(Number(price));
+      return num.toLocaleString('vi-VN') + '₫';
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    function hideAll() {
+      results.classList.add('hidden');
+      errorDiv.classList.add('hidden');
+      noMatch.classList.add('hidden');
+      warnings.classList.add('hidden');
+      loginNote.classList.add('hidden');
+    }
+
+    function showError(msg) {
+      errorDiv.textContent = msg;
+      errorDiv.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
