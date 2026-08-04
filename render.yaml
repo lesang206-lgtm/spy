@@ -3,7 +3,7 @@ services:
     name: thuocsi-vs-longchau
     runtime: node
     plan: free
-    buildCommand: npm install && cd client && npm install && npm run build
+    buildCommand: npm install && cd client && npm install --include=dev && npm run build
     startCommand: node src/server.js
     envVars:
       - key: NODE_ENV
